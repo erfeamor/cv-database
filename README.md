@@ -28,3 +28,7 @@ docker compose up -d          # start MySQL on localhost:3306 (db: cv, user/pass
 ## Adding a migration
 
 Add a new `sql/migrations/V{n}__description.sql` file following Flyway's naming convention, then run `./scripts/migrate.sh`. Never edit an already-applied migration file.
+
+## Dev seed data
+
+`sql/dev-seeds/afterMigrate__seed_dev.sql` is a Flyway callback with idempotent demo inserts. It runs only because the local `flyway.conf` lists the `dev-seeds` location — production configs must list only `sql/migrations`.
