@@ -19,7 +19,7 @@ pipeline {
                     docker run --rm \
                       --network cv-db-ci-$BUILD_NUMBER \
                       -v "$WORKSPACE/sql:/flyway/sql" \
-                      -e FLYWAY_URL=jdbc:mysql://cv-mysql-ci-$BUILD_NUMBER:3306/cv \
+                      -e FLYWAY_URL='jdbc:mysql://cv-mysql-ci-'$BUILD_NUMBER':3306/cv?allowPublicKeyRetrieval=true' \
                       -e FLYWAY_USER=cv \
                       -e FLYWAY_PASSWORD=cv \
                       -e FLYWAY_LOCATIONS=filesystem:/flyway/sql/migrations \
