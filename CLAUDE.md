@@ -28,6 +28,19 @@ CI: `Jenkinsfile` — applies all migrations against a throwaway MySQL container
 
 Flyway 10 bundles the **MariaDB** driver: every MySQL 8 JDBC URL needs `?allowPublicKeyRetrieval=true` (already in `flyway.conf`, the Jenkinsfile, and the meta repo's dev compose). Without it, migrate doesn't fail — it **hangs retrying** with an RSA-public-key warning.
 
+## Code review guidance
+
+Priorities, ranked:
+
+1. **Migration immutability.** Any edit to an already-applied `sql/migrations/V*.sql` file is a hard blocker — the fix is always a new `V{n+1}` file, never a rewrite. Flyway checksums make an edit fail loudly in CI, but flag it in review before that.
+2. **Schema/entity coordination.** A migration adding/renaming a column with no companion PR (or note) in `cv-domain-service` is a gap — `ddl-auto: validate` means the entity must match exactly.
+3. **Dev-seed hygiene.** Anything in `sql/dev-seeds/afterMigrate__seed_dev.sql` must be idempotent (`INSERT IGNORE` / natural-key lookups) and must never contain data that could reach a versioned migration.
+4. Missing `allowPublicKeyRetrieval=true` on any new MySQL JDBC URL — it doesn't fail fast, it hangs.
+
+Don't flag:
+- The `dev-seeds` Flyway location existing only in the local `flyway.conf` (prod intentionally omits it).
+- Self-hosted MySQL 8.4 on the domain-service EC2 instead of RDS — a deliberate cost/lifecycle decision (see cv-infra).
+
 ## Git workflow
 
 `master` is protected — feature branch (`feat/…`) → push → PR via `gh`. A schema PR's description must name the downstream repos it affects.
