@@ -31,6 +31,25 @@ WHERE p.email = 'jane.doe@example.com';
 -- Natural keys: experience = company + role + start_date
 --               education  = institution + degree + start_date
 --               project    = name + start_date
+--
+-- The guards test ONLY those key columns, which cuts both ways. Both directions
+-- are silent: the migrate exits 0 and Flyway reports "Successfully applied 0
+-- migrations" either way, so as everywhere else in this file, the absence of an
+-- error is not evidence that what you intended actually happened.
+--
+--   * Editing a NON-KEY field of a seeded row HERE (fixing an end_date, a typo
+--     in a description) applies on a fresh volume and no-ops on every existing
+--     one — the guard still matches on the key, so the stale row stays and
+--     looks like the intended state. Run scripts/reset.sh to pick the change up.
+--
+--   * Editing a KEY column of a seeded row IN THE DATABASE (renaming 'Acme
+--     Corp' to 'Acme Corporation' through cv-admin-react, say) makes the guard
+--     miss, so the next migrate RESURRECTS the original row alongside your
+--     edited one. For experience that means two rows with end_date NULL — two
+--     current jobs on the rendered CV, the exact invariant this seed pins down.
+--     This is inherent to insert-only seeding and is not fixable without a
+--     unique constraint on the natural key, which is a schema change and
+--     deliberately out of scope here (see T-151). Remedy is scripts/reset.sh.
 -- ---------------------------------------------------------------------------
 
 -- experience: three roles, exactly one current (end_date NULL), and that one
@@ -123,7 +142,7 @@ WHERE p.email = 'jane.doe@example.com'
 
 INSERT INTO project (person_id, name, description, repo_url, start_date, end_date)
 SELECT p.id, 'Curriculum Interactivo',
-       'Interactive CV platform built as seven independent repos: MySQL and Flyway, a Spring Boot domain API, a Node BFF, a React admin UI and two public front ends, each with its own CI and deploy pipeline.',
+       'Interactive CV platform built as seven independent repos: MySQL and Flyway, a Spring Boot domain API, a Node BFF, a React admin UI, two public front ends and a Prometheus/Grafana metrics stack, each with its own CI and deploy pipeline.',
        'https://github.com/erfeamor/curriculum', '2024-02-05', NULL
 FROM person p
 WHERE p.email = 'jane.doe@example.com'
@@ -144,6 +163,25 @@ WHERE p.email = 'jane.doe@example.com'
     SELECT 1 FROM project pr
     WHERE pr.person_id = p.id
       AND pr.name = 'Ledger CLI'
+      AND pr.start_date <=> '2021-11-08'
+  );
+
+-- Deliberately shares '2021-11-08' with 'Ledger CLI' above: the contract orders
+-- projects by startDate DESC and breaks ties on id ASC, and that secondary key
+-- is mandatory, not decorative. Without two rows on the same date the local
+-- stack never exercises it, so a regression dropping the tiebreaker would still
+-- render a stable, correct-looking CV here. The names differ, so the
+-- name + start_date natural key still tells the two rows apart.
+INSERT INTO project (person_id, name, description, repo_url, start_date, end_date)
+SELECT p.id, 'Schema Diff Reporter',
+       'Companion tool to Ledger CLI, started the same week: compares two MySQL schemas and prints the Flyway migration that would close the gap, so review sees the intent rather than the DDL.',
+       'https://github.com/erfeamor/schema-diff-reporter', '2021-11-08', '2022-03-18'
+FROM person p
+WHERE p.email = 'jane.doe@example.com'
+  AND NOT EXISTS (
+    SELECT 1 FROM project pr
+    WHERE pr.person_id = p.id
+      AND pr.name = 'Schema Diff Reporter'
       AND pr.start_date <=> '2021-11-08'
   );
 
