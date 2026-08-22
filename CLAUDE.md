@@ -11,6 +11,34 @@ docker compose up -d        # MySQL 8 on :3306 (db cv, user/pass cv/cv, root/roo
 docker compose down -v      # full teardown including data
 ```
 
+**Switching an existing local volume between MySQL versions — wipe it.** The image is pinned to
+`mysql:8.4`, matching production (`cv-infra`) and the Jenkins migration gate. A `cv-mysql-data`
+volume left over from the previous `8.0` pin holds an 8.0-formatted datadir. The supported
+route when the pin moves in either direction is to throw the volume away:
+
+```bash
+docker compose down -v      # discard the old datadir
+docker compose up -d        # the pinned server initialises a fresh one
+./scripts/migrate.sh        # migrations + dev seeds regenerate
+```
+
+Nothing is lost: the volume only ever holds the migrations plus the `afterMigrate` dev-seed
+callback, and `migrate.sh` re-applies both. `./scripts/reset.sh` already does all three steps.
+
+Why wiping is the rule rather than a nicety — the two directions are **not** symmetric
+(both verified on this stack, 2026-08-22):
+
+- **8.0 → 8.4 succeeds silently.** The server performs an in-place upgrade on first start
+  (`Data dictionary upgrading from version '80023' to '80300'`, `Server upgrade from '80046'
+  to '80411' completed`) and comes up healthy. Convenient, but it is a one-way door: your
+  volume is now 8.4-formatted.
+- **8.4 → 8.0 fails hard and is not recoverable in place.** Checking out any branch still
+  pinned at the old `8.0` image after 8.4 has touched the volume aborts startup with
+  `[ERROR] [MY-014061] [InnoDB] Invalid MySQL server downgrade: Cannot downgrade from 80411
+  to 80046. Downgrade is only permitted between patch releases.` The container exits 1, so it
+  never reports `healthy` and `reset.sh`'s health poll **loops forever instead of erroring**.
+  The fix is `docker compose down -v`.
+
 CI: `Jenkinsfile` — applies all migrations against a throwaway MySQL container; broken SQL fails the build.
 
 ## Rules (breaking these breaks every downstream repo)

@@ -15,7 +15,7 @@ pipeline {
                       -e MYSQL_DATABASE=cv \
                       -e MYSQL_USER=cv \
                       -e MYSQL_PASSWORD=cv \
-                      mysql:8.0
+                      mysql:8.4
                     docker run --rm \
                       --network cv-db-ci-$BUILD_NUMBER \
                       -v "$WORKSPACE/sql:/flyway/sql" \
