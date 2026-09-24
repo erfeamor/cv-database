@@ -50,9 +50,18 @@ pipeline {
                     deadline=$(( $(date +%s) + wait_bound ))
                     status=starting
                     while [ "$(date +%s)" -lt "$deadline" ]; do
-                        status=$(docker inspect -f '{{.State.Health.Status}}' cv-mysql-ci-$BUILD_NUMBER 2>/dev/null || echo missing)
+                        # inspect prints an empty line even when the container is
+                        # gone, so set "missing" on its exit status, not its output.
+                        if ! status=$(docker inspect -f '{{.State.Health.Status}}' cv-mysql-ci-$BUILD_NUMBER 2>/dev/null); then
+                            status=missing
+                        fi
                         if [ "$status" = healthy ]; then
                             break
+                        fi
+                        if [ "$status" = missing ]; then
+                            # --rm removed a crashed container: fail now, not at the bound.
+                            echo "MySQL did not become healthy within ${wait_bound}s (container exited)" >&2
+                            exit 1
                         fi
                         sleep 2
                     done
@@ -64,6 +73,7 @@ pipeline {
                     echo "MySQL healthy; running Flyway"
 
                     docker run --rm \
+                      --name cv-flyway-ci-$BUILD_NUMBER \
                       --network cv-db-ci-$BUILD_NUMBER \
                       -v "$WORKSPACE/sql:/flyway/sql" \
                       -e FLYWAY_URL='jdbc:mysql://cv-mysql-ci-'$BUILD_NUMBER':3306/cv?allowPublicKeyRetrieval=true' \
@@ -78,6 +88,7 @@ pipeline {
                 always {
                     sh '''
                         docker rm -f cv-mysql-ci-$BUILD_NUMBER || true
+                        docker rm -f cv-flyway-ci-$BUILD_NUMBER || true
                         docker network rm cv-db-ci-$BUILD_NUMBER || true
                     '''
                 }
