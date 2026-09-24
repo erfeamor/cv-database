@@ -1,11 +1,11 @@
 # CLAUDE.md — cv-database
 
-Data layer for cv-project: MySQL 8 schema managed exclusively through **Flyway 10 versioned migrations**. Every other repo's persistence depends on what this repo says the schema is. Cross-repo context: meta repo CLAUDE.md one directory up.
+Data layer for cv-project: MySQL 8.4 schema managed exclusively through **Flyway 10 versioned migrations**. Every other repo's persistence depends on what this repo says the schema is. Cross-repo context: meta repo CLAUDE.md one directory up.
 
 ## Commands
 
 ```bash
-docker compose up -d        # MySQL 8 on :3306 (db cv, user/pass cv/cv, root/root)
+docker compose up -d        # MySQL 8.4 on :3306 (db cv, user/pass cv/cv, root/root)
 ./scripts/migrate.sh        # apply migrations + dev seeds via dockerized Flyway
 ./scripts/reset.sh          # nuke volume, restart MySQL, re-migrate
 docker compose down -v      # full teardown including data
@@ -39,7 +39,7 @@ Why wiping is the rule rather than a nicety — the two directions are **not** s
   never reports `healthy` and `reset.sh`'s health poll **loops forever instead of erroring**.
   The fix is `docker compose down -v`.
 
-CI: `Jenkinsfile` — applies all migrations against a throwaway MySQL container; broken SQL fails the build.
+CI: `Jenkinsfile` — applies all migrations against a throwaway MySQL 8.4 container (Flyway starts only once the container reports healthy, with a 120 s bound on that wait); broken SQL fails the build. The whole pipeline has a 10-minute timeout. The `Deploy` stage (gated on `master`) is a no-op placeholder.
 
 ## Rules (breaking these breaks every downstream repo)
 

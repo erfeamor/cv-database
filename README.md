@@ -6,7 +6,7 @@ Part of the [cv-project](../README.md) multi-repo. Pipeline: Jenkins.
 
 ## Stack
 
-- MySQL 8
+- MySQL 8.4
 - Flyway (versioned SQL migrations under `sql/migrations`)
 
 ## Schema
