@@ -1,6 +1,6 @@
 # CLAUDE.md — cv-database
 
-Data layer for cv-project: MySQL 8.4 schema managed exclusively through **Flyway 10 versioned migrations**. Every other repo's persistence depends on what this repo says the schema is. Cross-repo context: meta repo CLAUDE.md one directory up.
+Data layer for cv-project: MySQL 8.4 schema managed exclusively through **Flyway 13 versioned migrations**. Every other repo's persistence depends on what this repo says the schema is. Cross-repo context: meta repo CLAUDE.md one directory up.
 
 ## Commands
 
@@ -54,7 +54,7 @@ CI: `Jenkinsfile` — applies all migrations against a throwaway MySQL 8.4 conta
 
 ## Critical gotcha
 
-Flyway 10 bundles the **MariaDB** driver: every MySQL 8 JDBC URL needs `?allowPublicKeyRetrieval=true` (already in `flyway.conf`, the Jenkinsfile, and the meta repo's dev compose). Without it, migrate doesn't fail — it **hangs retrying** with an RSA-public-key warning.
+Flyway bundles the **MariaDB** driver (both 10.22.0 and 13.7.0 ship only `mariadb-java-client-2.7.14`, verified 2026-09-23 in T-155): every MySQL 8 JDBC URL needs `?allowPublicKeyRetrieval=true` (already in `flyway.conf`, the Jenkinsfile, and the meta repo's dev compose). Without it, migrate doesn't fail — it **hangs retrying** with an RSA-public-key warning.
 
 ## Code review guidance
 
