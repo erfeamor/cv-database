@@ -81,7 +81,7 @@ pipeline {
                       -e FLYWAY_PASSWORD=cv \
                       -e FLYWAY_LOCATIONS=filesystem:/flyway/sql/migrations \
                       -e FLYWAY_CONNECT_RETRIES=3 \
-                      flyway/flyway:10 migrate
+                      flyway/flyway:13.7.0 migrate
                 '''
             }
             post {
