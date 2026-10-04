@@ -48,9 +48,10 @@ CI: `Jenkinsfile` — applies all migrations against a throwaway MySQL 8.4 conta
 3. **Dev seed data goes only in `sql/dev-seeds/afterMigrate__seed_dev.sql`** — a Flyway callback that runs after *every* migrate, so every statement must be idempotent (`INSERT IGNORE`, natural-key lookups). Versioned migrations must never contain demo data (they'd reach production).
 4. The `dev-seeds` location is listed only in the local `flyway.conf`; production configs point at `sql/migrations` alone.
 
-## Schema (V1)
+## Schema
 
-`person` (unique email) ← `experience` / `education` / `project` (FK cascade delete) · `skill` (unique name) ·  `person_skill` (composite PK person+skill, `proficiency` enum BEGINNER/INTERMEDIATE/ADVANCED/EXPERT).
+- **V1** `init_schema`: `person` (unique email) ← `experience` / `education` / `project` (FK cascade delete) · `skill` (unique name) ·  `person_skill` (composite PK person+skill, `proficiency` enum BEGINNER/INTERMEDIATE/ADVANCED/EXPERT).
+- **V2** `add_version_columns` (T-157): `version BIGINT NOT NULL DEFAULT 0` on `person`, `experience`, `education`, `project` — the `@Version` column for contract rule 8. Not on `skill` / `person_skill`.
 
 ## Critical gotcha
 
