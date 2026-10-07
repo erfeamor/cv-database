@@ -100,10 +100,11 @@ pipeline {
                 branch 'master'
             }
             steps {
-                // Not implemented. Credentials and blast radius are open
-                // questions (T-005 on the cv-project board); read the board
-                // before implementing.
-                echo 'Deploy stage not yet implemented'
+                // Intentionally a no-op: no deploy credential may live on
+                // this host (T-005). Production migrations run from GitHub
+                // Actions (.github/workflows/migrate.yml, T-158) once this
+                // build is green.
+                echo 'Production migration runs in GitHub Actions (migrate.yml)'
             }
         }
     }
