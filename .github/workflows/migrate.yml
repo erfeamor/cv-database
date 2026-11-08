@@ -1,11 +1,10 @@
 # Apply cv-database migrations to production (T-158).
 #
-# Jenkins (Jenkinsfile) is this repo's CI gate: it runs every migration against
-# a throwaway MySQL 8.4. Production migrations run here, not in Jenkins, because
-# no deploy credential may live on the CI host (T-005). This workflow assumes a
-# master-only OIDC role and migrates a commit only after Jenkins has reported
-# `success` for that same commit. Runs only on a master push that touches
-# sql/migrations/** (or this file), or a manual dispatch (master only).
+# The gate (gate.yml, T-159) runs every migration against a throwaway MySQL 8.4
+# first; the migrate job needs it. This workflow assumes a master-only OIDC
+# role; no `environment:` anywhere, since that would change the OIDC sub claim
+# the trust matches (ref:refs/heads/master). Runs only on a master push that
+# touches sql/migrations/** (or this file), or a manual dispatch (master only).
 name: migrate
 
 on:
@@ -19,7 +18,6 @@ on:
 permissions:
   id-token: write
   contents: read
-  statuses: read
 
 # Queue runs; never cancel one half-way through a Flyway migrate.
 concurrency:
@@ -30,56 +28,16 @@ env:
   AWS_REGION: eu-west-3
   SSM_DOCUMENT: cv-redeploy-migrate
   TARGET_NAME_TAG: cv-project-domain-service
-  JENKINS_CONTEXT: continuous-integration/jenkins/branch
-  PUBLIC_BASE_URL: https://dvdlxl0zqepqi.cloudfront.net
+  PUBLIC_BASE_URL: https://erfeamor.com
 
 jobs:
-  wait-for-jenkins:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
-    steps:
-      - name: Require the master ref
-        run: |
-          if [ "${GITHUB_REF}" != "refs/heads/master" ]; then
-            echo "::error::Production migrations run from refs/heads/master only (got ${GITHUB_REF})."
-            exit 1
-          fi
-
-      - name: Wait for a green Jenkins status on this commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          # The CI host is on-demand: a doorbell wakes it on push, it boots,
-          # then Jenkins scans, so the status can take several minutes to
-          # appear. Bounded at 30 minutes.
-          deadline=$(( $(date +%s) + 30 * 60 ))
-          while :; do
-            # Statuses are listed newest first; the first entry with our
-            # context is the current state for it.
-            state=$(gh api "repos/${REPO}/commits/${SHA}/statuses?per_page=100" \
-              --jq "[.[] | select(.context == \"${JENKINS_CONTEXT}\")][0].state // \"absent\"" \
-              || echo "api-error")
-            echo "$(date -u +%H:%M:%S) ${JENKINS_CONTEXT}: ${state}"
-            case "$state" in
-              success)
-                echo "Jenkins is green; migrating."
-                exit 0 ;;
-              failure|error)
-                echo "::error::Jenkins is red (${state}); not migrating."
-                exit 1 ;;
-            esac
-            if [ "$(date +%s)" -ge "$deadline" ]; then
-              echo "::error::No green Jenkins status for ${SHA} after 30 minutes (last: ${state}); not migrating."
-              exit 1
-            fi
-            sleep 20
-          done
+  # Throwaway-MySQL check of every migration (gate.yml, T-159); production is
+  # touched only if it passes.
+  gate:
+    uses: ./.github/workflows/gate.yml
 
   migrate:
-    needs: wait-for-jenkins
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -109,7 +67,7 @@ jobs:
       # (T-068), so cv_sync_database_repo (cv-infra, T-070) reads the sql/ tree
       # from S3. Publish exactly the tree of the commit being migrated, before
       # the SSM command that makes the host read it. This job only runs on
-      # master (first step), after the Jenkins gate.
+      # master (first step), after the gate.
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

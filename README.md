@@ -2,7 +2,7 @@
 
 Data layer for the Currículum Interactivo project: a MySQL schema managed with [Flyway](https://flywaydb.org/) migrations. Source of truth for `cv-domain-service`.
 
-Part of the [cv-project](../README.md) multi-repo. Pipeline: Jenkins (validates migrations); a master push touching `sql/migrations/**` then migrates production via GitHub Actions (`.github/workflows/migrate.yml`) once Jenkins is green. See `CLAUDE.md`.
+Part of the [cv-project](../README.md) multi-repo. Pipeline: GitHub Actions. `gate.yml` validates every migration against a throwaway MySQL 8.4 (run by `ci.yml` on PRs); a master push touching `sql/migrations/**` then migrates production (`.github/workflows/migrate.yml`) once the gate is green. See `CLAUDE.md`.
 
 ## Stack
 

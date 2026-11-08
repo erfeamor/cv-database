@@ -29,12 +29,12 @@ class MigrateWorkflow(unittest.TestCase):
     def test_permissions_minimal(self):
         self.assertEqual(
             self.wf["permissions"],
-            {"id-token": "write", "contents": "read", "statuses": "read"},
+            {"id-token": "write", "contents": "read"},
         )
         for job in self.jobs.values():
             if "permissions" in job:
                 self.assertLessEqual(
-                    set(job["permissions"]), {"id-token", "contents", "statuses"}
+                    set(job["permissions"]), {"id-token", "contents"}
                 )
 
     def test_concurrency_queues(self):
@@ -43,25 +43,26 @@ class MigrateWorkflow(unittest.TestCase):
         self.assertIs(c["cancel-in-progress"], False)
 
     def test_job_order_and_timeouts(self):
-        self.assertEqual(set(self.jobs), {"wait-for-jenkins", "migrate"})
-        self.assertEqual(self.jobs["migrate"]["needs"], "wait-for-jenkins")
-        for name, job in self.jobs.items():
-            self.assertIsInstance(job.get("timeout-minutes"), int, name)
+        self.assertEqual(set(self.jobs), {"gate", "migrate"})
+        self.assertEqual(self.jobs["gate"]["uses"], "./.github/workflows/gate.yml")
+        self.assertEqual(self.jobs["migrate"]["needs"], "gate")
+        # a reusable-workflow call carries its timeout in gate.yml's job
+        self.assertIsInstance(self.jobs["migrate"].get("timeout-minutes"), int)
 
     def test_master_ref_guard(self):
-        # workflow_dispatch can run from any ref: both jobs must fail (not skip)
-        # on the first step unless the ref is master.
-        for name, job in self.jobs.items():
-            first = str(job["steps"][0])
-            self.assertIn("GITHUB_REF", first, name)
-            self.assertIn("refs/heads/master", first, name)
+        # workflow_dispatch can run from any ref: the migrate job must fail
+        # (not skip) on its first step unless the ref is master.
+        first = str(self.jobs["migrate"]["steps"][0])
+        self.assertIn("GITHUB_REF", first)
+        self.assertIn("refs/heads/master", first)
 
     def test_aws_interface(self):
         env = self.wf["env"]
         self.assertEqual(env["SSM_DOCUMENT"], "cv-redeploy-migrate")
         self.assertEqual(env["TARGET_NAME_TAG"], "cv-project-domain-service")
         self.assertEqual(env["AWS_REGION"], "eu-west-3")
-        self.assertEqual(env["JENKINS_CONTEXT"], "continuous-integration/jenkins/branch")
+        self.assertEqual(env["PUBLIC_BASE_URL"], "https://erfeamor.com")
+        self.assertNotIn("JENKINS_CONTEXT", env)
         self.assertIn("vars.AWS_DEPLOY_ROLE_ARN", self.text)
         self.assertNotIn("secrets.", self.text)
         self.assertNotIn("pull_request_target", self.text)
@@ -76,7 +77,7 @@ class MigrateWorkflow(unittest.TestCase):
 
     def test_publishes_sql_to_s3_before_the_redeploy(self):
         # T-071: the host reads s3://.../migrations/cv-database-sql.tgz (T-070).
-        # The upload must follow the credentials step (and so the Jenkins wait,
+        # The upload must follow the credentials step (and so the gate,
         # the job's `needs`) and precede the SSM command that consumes it.
         creds = self._index("configure-aws-credentials")
         upload = self._index("aws s3 cp")
@@ -100,8 +101,16 @@ class MigrateWorkflow(unittest.TestCase):
         self.assertIn("vars.MIGRATION_SQL_S3_URI", str(step))
         self.assertIn("s3://", run)
 
-    def test_upload_never_in_the_jenkins_job(self):
-        self.assertNotIn("aws s3", str(self.jobs["wait-for-jenkins"]))
+    def test_upload_never_in_the_gate_job(self):
+        self.assertNotIn("aws s3", str(self.jobs["gate"]))
+
+    def test_no_environment_key(self):
+        # `environment:` changes the OIDC sub claim; the trust matches
+        # ref:refs/heads/master exactly.
+        self.assertNotRegex(self.text, r"(?m)^\s*environment\s*:")
+
+    def test_no_statuses_permission(self):
+        self.assertNotIn("statuses", self.text)
 
     def test_upload_key_is_the_one_the_host_reads(self):
         # cv-infra locals.migration_sql_key; the variable must end with it.
