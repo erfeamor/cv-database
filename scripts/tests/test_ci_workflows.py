@@ -80,6 +80,15 @@ class Gate(unittest.TestCase):
         ):
             self.assertIn(frag, run)
 
+    def test_structural_tests_run_after_checkout(self):
+        steps = self.job["steps"]
+        idx = [i for i, st in enumerate(steps)
+               if "python3 -m unittest discover -s scripts/tests" in st.get("run", "")]
+        self.assertEqual(len(idx), 1)
+        co = [i for i, st in enumerate(steps) if "actions/checkout" in st.get("uses", "")]
+        self.assertLess(co[0], idx[0])
+        self.assertIn("import yaml", steps[idx[0]]["run"])
+
     def test_no_aws_or_secrets(self):
         self.assertNotIn("secrets.", self.text)
         self.assertNotIn("id-token", self.text)

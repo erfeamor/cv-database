@@ -38,6 +38,15 @@ jobs:
         with:
           persist-credentials: false
 
+      # The structural tests pin the security-relevant shape of these workflows
+      # (no `environment:`, guards, step order); run them so a PR cannot
+      # silently drop one. Needs no credential.
+      - name: Structural tests
+        run: |
+          set -euo pipefail
+          python3 -c 'import yaml' || pip install --user pyyaml
+          python3 -m unittest discover -s scripts/tests -v
+
       - name: Apply all migrations
         run: |
           set -euo pipefail
