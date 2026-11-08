@@ -9,11 +9,11 @@ docker compose up -d        # MySQL 8.4 on :3306 (db cv, user/pass cv/cv, root/r
 ./scripts/migrate.sh        # apply migrations + dev seeds via dockerized Flyway
 ./scripts/reset.sh          # nuke volume, restart MySQL, re-migrate
 docker compose down -v      # full teardown including data
-python3 -m unittest discover -s scripts/tests -v   # structural test of .github/workflows/migrate.yml (needs PyYAML; no Jenkins/Docker)
+python3 -m unittest discover -s scripts/tests -v   # structural tests of .github/workflows/{gate,ci,migrate}.yml (needs PyYAML; no Docker)
 ```
 
 **Switching an existing local volume between MySQL versions — wipe it.** The image is pinned to
-`mysql:8.4`, matching production (`cv-infra`) and the Jenkins migration gate. A `cv-mysql-data`
+`mysql:8.4`, matching production (`cv-infra`) and the CI migration gate (`gate.yml`). A `cv-mysql-data`
 volume left over from the previous `8.0` pin holds an 8.0-formatted datadir. The supported
 route when the pin moves in either direction is to throw the volume away:
 
@@ -40,9 +40,9 @@ Why wiping is the rule rather than a nicety — the two directions are **not** s
   never reports `healthy` and `reset.sh`'s health poll **loops forever instead of erroring**.
   The fix is `docker compose down -v`.
 
-CI: `Jenkinsfile` — applies all migrations against a throwaway MySQL 8.4 container (Flyway starts only once the container reports healthy, with a 120 s bound on that wait); broken SQL fails the build. The whole pipeline has a 10-minute timeout. The `Deploy` stage (gated on `master`) is a no-op placeholder: production migrations are **not** run from Jenkins (no deploy credential may live on the CI host, T-005) — they run from GitHub Actions, below.
+CI: GitHub Actions (T-159; this repo no longer uses Jenkins: no Jenkinsfile). `.github/workflows/gate.yml` is a reusable workflow (`workflow_call`, `contents: read`, 10-minute timeout): a `mysql:8.4` service container whose health check is a real query as cv/cv over TCP (`mysql -h127.0.0.1 -ucv -pcv -e 'SELECT 1' cv`; TCP because the init-phase server runs with `--skip-networking`, and a query rather than `mysqladmin ping` because ping exits 0 on "Access denied"), then `flyway/flyway:13.7.0 migrate` via `docker run` on the job's network against it; broken SQL fails the run. `ci.yml` runs it on every pull request to `master`. `migrate.yml` runs it first on the production path (below).
 
-**Production migration — `.github/workflows/migrate.yml` (T-158).** Triggers: a push to `master` touching `sql/migrations/**` or the workflow file itself, plus `workflow_dispatch` (master only; both jobs fail fast on any other ref). Docs-, seed- and script-only pushes never touch production. Flow: `wait-for-jenkins` (bounded 30 min; needs `continuous-integration/jenkins/branch` = success on that commit) → `migrate` (OIDC → role from the repo variable **`AWS_DEPLOY_ROLE_ARN`** — must be set on cv-database, the job fails clearly if not → **publishes `sql/` (T-071)**: checkout, a reproducible `tar | gzip -n`, `aws s3 cp` to `s3://<bucket>/migrations/cv-database-sql.tgz` (no read-back: the role is write-only on that key) (destination from the repo variable **`MIGRATION_SQL_S3_URI`**, validated against that exact key; value = cv-infra output `migration_sql_bucket`) → SSM document `cv-redeploy-migrate` on the instance tagged `Name=cv-project-domain-service`, which downloads that object (T-070; git clone only while the object does not exist) and runs Flyway against production, migrations only, no dev-seeds → bounded poll, prints the output tail, then a cheap BFF check). PRs never migrate. Runs queue (`concurrency: migrate-cv-database`, never cancelled). `scripts/tests/test_migrate_workflow.py` pins the security-relevant structure of the workflow.
+**Production migration — `.github/workflows/migrate.yml` (T-158).** Triggers: a push to `master` touching `sql/migrations/**` or the workflow file itself, plus `workflow_dispatch` (master only; the migrate job fails fast on any other ref). Docs-, seed- and script-only pushes never touch production. Flow: `gate` (the reusable `gate.yml` above, on that commit) → `migrate` (`needs: gate`) (OIDC → role from the repo variable **`AWS_DEPLOY_ROLE_ARN`** — must be set on cv-database, the job fails clearly if not → **publishes `sql/` (T-071)**: checkout, a reproducible `tar | gzip -n`, `aws s3 cp` to `s3://<bucket>/migrations/cv-database-sql.tgz` (no read-back: the role is write-only on that key) (destination from the repo variable **`MIGRATION_SQL_S3_URI`**, validated against that exact key; value = cv-infra output `migration_sql_bucket`) → SSM document `cv-redeploy-migrate` on the instance tagged `Name=cv-project-domain-service`, which downloads that object (T-070; git clone only while the object does not exist) and runs Flyway against production, migrations only, no dev-seeds → bounded poll, prints the output tail, then a cheap BFF check). PRs never migrate. Runs queue (`concurrency: migrate-cv-database`, never cancelled). `scripts/tests/test_migrate_workflow.py` pins the security-relevant structure of the workflow (no `environment:` anywhere: it would change the OIDC `sub` claim the role trust matches), `test_ci_workflows.py` pins `gate.yml`/`ci.yml` and that no Jenkins remains.
 
 **If a production migration fails:** MySQL DDL is not transactional, so a multi-statement migration can stop half-applied and leave its earlier statements in place. Flyway records the version as failed and refuses further migrates until `flyway repair` is run deliberately against production on the app host, the same way `cv_run_flyway` runs it (there is no automated path for this). The running domain service keeps working as long as what got applied is additive; then fix forward with a new `V{n+1}`, never editing the failed migration, and re-run via `workflow_dispatch` on master.
 
@@ -60,7 +60,7 @@ CI: `Jenkinsfile` — applies all migrations against a throwaway MySQL 8.4 conta
 
 ## Critical gotcha
 
-Flyway bundles the **MariaDB** driver (both 10.22.0 and 13.7.0 ship only `mariadb-java-client-2.7.14`, verified 2026-09-23 in T-155): every MySQL 8 JDBC URL needs `?allowPublicKeyRetrieval=true` (already in `flyway.conf`, the Jenkinsfile, and the meta repo's dev compose). Without it, migrate doesn't fail — it **hangs retrying** with an RSA-public-key warning.
+Flyway bundles the **MariaDB** driver (both 10.22.0 and 13.7.0 ship only `mariadb-java-client-2.7.14`, verified 2026-09-23 in T-155): every MySQL 8 JDBC URL needs `?allowPublicKeyRetrieval=true` (already in `flyway.conf`, `gate.yml`, and the meta repo's dev compose). Without it, migrate doesn't fail — it **hangs retrying** with an RSA-public-key warning.
 
 ## Code review guidance
 
