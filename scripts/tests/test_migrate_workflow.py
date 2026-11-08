@@ -104,6 +104,10 @@ class MigrateWorkflow(unittest.TestCase):
     def test_upload_never_in_the_gate_job(self):
         self.assertNotIn("aws s3", str(self.jobs["gate"]))
 
+    def test_gate_caller_job_has_read_only_permissions(self):
+        # never inherit the workflow's id-token: write, whatever gate.yml says
+        self.assertEqual(self.jobs["gate"].get("permissions"), {"contents": "read"})
+
     def test_no_environment_key(self):
         # `environment:` changes the OIDC sub claim; the trust matches
         # ref:refs/heads/master exactly.
