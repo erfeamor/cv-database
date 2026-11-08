@@ -1,0 +1,18 @@
+# Pull-request CI (T-159): the migration gate, nothing else. Production is
+# migrated only by migrate.yml on master.
+name: ci
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    uses: ./.github/workflows/gate.yml

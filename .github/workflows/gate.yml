@@ -1,0 +1,57 @@
+# Migration gate (T-159, replaces the old CI host): applies every migration to
+# a throwaway MySQL 8.4 and fails on any broken SQL. Reusable: called by ci.yml
+# (pull requests) and migrate.yml (before production is touched).
+name: gate
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-migrations:
+    runs-on: ubuntu-latest
+    # Normal runs take ~2 min; this bounds a hang.
+    timeout-minutes: 10
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: cv
+          MYSQL_USER: cv
+          MYSQL_PASSWORD: cv
+        # Health probe: a real query as cv/cv against db cv over TCP
+        # (127.0.0.1). TCP matters because the entrypoint's init-phase server
+        # runs with --skip-networking, so it cannot pass; and a query (unlike
+        # `mysqladmin ping`, which exits 0 even on "Access denied") proves the
+        # cv user and database exist. Actions waits for "healthy" before steps.
+        options: >-
+          --health-cmd "mysql -h127.0.0.1 -ucv -pcv -e 'SELECT 1' cv"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Apply all migrations
+        run: |
+          set -euo pipefail
+          # The service is reachable on the job's network under its id, `mysql`.
+          # ?allowPublicKeyRetrieval=true is mandatory: Flyway's bundled MariaDB
+          # driver does not fail without it on MySQL 8, it hangs retrying.
+          # FLYWAY_CONNECT_RETRIES is only a small safety net; the service is
+          # already healthy.
+          docker run --rm \
+            --network ${{ job.services.mysql.network }} \
+            -v "$GITHUB_WORKSPACE/sql:/flyway/sql" \
+            -e FLYWAY_URL='jdbc:mysql://mysql:3306/cv?allowPublicKeyRetrieval=true' \
+            -e FLYWAY_USER=cv \
+            -e FLYWAY_PASSWORD=cv \
+            -e FLYWAY_LOCATIONS=filesystem:/flyway/sql/migrations \
+            -e FLYWAY_CONNECT_RETRIES=3 \
+            flyway/flyway:13.7.0 migrate
