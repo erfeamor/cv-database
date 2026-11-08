@@ -105,6 +105,36 @@ jobs:
           role-session-name: cv-database-migrate-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # T-071: the app host cannot reach github.com once it has no public IPv4
+      # (T-068), so cv_sync_database_repo (cv-infra, T-070) reads the sql/ tree
+      # from S3. Publish exactly the tree of the commit being migrated, before
+      # the SSM command that makes the host read it. This job only runs on
+      # master (first step), after the Jenkins gate.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Publish sql/ to S3
+        env:
+          SQL_URI: ${{ vars.MIGRATION_SQL_S3_URI }}
+        run: |
+          set -euo pipefail
+          # Same key the host reads (cv-infra local.migration_sql_key); the
+          # role can write nothing else.
+          if ! [[ "${SQL_URI}" =~ ^s3://([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])/(migrations/cv-database-sql\.tgz)$ ]]; then
+            echo "::error::Repository variable MIGRATION_SQL_S3_URI must be s3://<bucket>/migrations/cv-database-sql.tgz (cv-infra output migration_sql_bucket)."
+            exit 1
+          fi
+          bucket="${BASH_REMATCH[1]}"
+          key="${BASH_REMATCH[2]}"
+          # Reproducible: same sql/ tree, same bytes.
+          tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - sql | gzip -n > "${RUNNER_TEMP}/cv-database-sql.tgz"
+          tar -tzf "${RUNNER_TEMP}/cv-database-sql.tgz" | grep -qx 'sql/migrations/' || { echo "::error::sql/migrations missing from the archive."; exit 1; }
+          aws s3 cp "${RUNNER_TEMP}/cv-database-sql.tgz" "s3://${bucket}/${key}" --only-show-errors
+          size=$(aws s3api head-object --bucket "${bucket}" --key "${key}" --query ContentLength --output text)
+          [ "${size}" = "$(stat -c %s "${RUNNER_TEMP}/cv-database-sql.tgz")" ] || { echo "::error::Uploaded size ${size} differs from the local archive."; exit 1; }
+          echo "Published ${GITHUB_SHA::7} sql/ to s3://${bucket}/${key} (${size} bytes)"
+
       - name: Migrate production (SSM)
         run: |
           set -euo pipefail
