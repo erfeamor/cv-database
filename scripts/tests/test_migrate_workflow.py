@@ -91,8 +91,11 @@ class MigrateWorkflow(unittest.TestCase):
         for flag in ("--sort=name", "--owner=0", "--group=0", "--numeric-owner", "--mtime="):
             self.assertIn(flag, run)
         self.assertIn("gzip -n", run)
-        # published, then read back
-        self.assertIn("aws s3api head-object", run)
+        # The role may only PutObject that key (cv-infra T-070): no read-back
+        # (head-object needs s3:GetObject and 403s). `aws s3 cp` fails the step
+        # itself if the upload fails.
+        self.assertNotIn("aws s3api", run)
+        self.assertIn("set -euo pipefail", run)
         # destination comes from a variable, validated as an s3:// URI
         self.assertIn("vars.MIGRATION_SQL_S3_URI", str(step))
         self.assertIn("s3://", run)

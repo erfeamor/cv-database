@@ -131,9 +131,8 @@ jobs:
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf - sql | gzip -n > "${RUNNER_TEMP}/cv-database-sql.tgz"
           tar -tzf "${RUNNER_TEMP}/cv-database-sql.tgz" | grep -qx 'sql/migrations/' || { echo "::error::sql/migrations missing from the archive."; exit 1; }
           aws s3 cp "${RUNNER_TEMP}/cv-database-sql.tgz" "s3://${bucket}/${key}" --only-show-errors
-          size=$(aws s3api head-object --bucket "${bucket}" --key "${key}" --query ContentLength --output text)
-          [ "${size}" = "$(stat -c %s "${RUNNER_TEMP}/cv-database-sql.tgz")" ] || { echo "::error::Uploaded size ${size} differs from the local archive."; exit 1; }
-          echo "Published ${GITHUB_SHA::7} sql/ to s3://${bucket}/${key} (${size} bytes)"
+          # No read-back: the role has PutObject on this key and nothing else.
+          echo "Published ${GITHUB_SHA::7} sql/ to s3://${bucket}/${key} ($(stat -c %s "${RUNNER_TEMP}/cv-database-sql.tgz") bytes)"
 
       - name: Migrate production (SSM)
         run: |
