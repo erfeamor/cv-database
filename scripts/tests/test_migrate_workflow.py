@@ -66,6 +66,44 @@ class MigrateWorkflow(unittest.TestCase):
         self.assertNotIn("secrets.", self.text)
         self.assertNotIn("pull_request_target", self.text)
 
+    def _migrate_steps(self):
+        return self.jobs["migrate"]["steps"]
+
+    def _index(self, needle):
+        hits = [i for i, st in enumerate(self._migrate_steps()) if needle in str(st)]
+        self.assertEqual(len(hits), 1, f"{needle!r} should appear in exactly one step")
+        return hits[0]
+
+    def test_publishes_sql_to_s3_before_the_redeploy(self):
+        # T-071: the host reads s3://.../migrations/cv-database-sql.tgz (T-070).
+        # The upload must follow the credentials step (and so the Jenkins wait,
+        # the job's `needs`) and precede the SSM command that consumes it.
+        creds = self._index("configure-aws-credentials")
+        upload = self._index("aws s3 cp")
+        ssm = self._index("aws ssm send-command")
+        self.assertLess(creds, upload)
+        self.assertLess(upload, ssm)
+        step = self._migrate_steps()[upload]
+        run = step["run"]
+        self.assertIn("tar ", run)
+        self.assertIn("sql", run)
+        # reproducible archive: same sql/ tree -> same bytes
+        for flag in ("--sort=name", "--owner=0", "--group=0", "--numeric-owner", "--mtime="):
+            self.assertIn(flag, run)
+        self.assertIn("gzip -n", run)
+        # published, then read back
+        self.assertIn("aws s3api head-object", run)
+        # destination comes from a variable, validated as an s3:// URI
+        self.assertIn("vars.MIGRATION_SQL_S3_URI", str(step))
+        self.assertIn("s3://", run)
+
+    def test_upload_never_in_the_jenkins_job(self):
+        self.assertNotIn("aws s3", str(self.jobs["wait-for-jenkins"]))
+
+    def test_upload_key_is_the_one_the_host_reads(self):
+        # cv-infra locals.migration_sql_key; the variable must end with it.
+        self.assertIn("migrations/cv-database-sql.tgz", self.text)
+
 
 if __name__ == "__main__":
     unittest.main()
