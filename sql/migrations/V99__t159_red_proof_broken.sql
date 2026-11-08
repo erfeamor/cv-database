@@ -1,0 +1,1 @@
+CREATE TABLE t159_broken (id INT PRIMARY KEY
